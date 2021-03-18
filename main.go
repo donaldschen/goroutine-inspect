@@ -204,7 +204,5 @@ func printHelp() {
 	fmt.Println("\t<var>.search(\"<condition>\", offset)")
 	fmt.Println("\t<var>.search(\"<condition>\", offset, limit)")
 	fmt.Println("\t<var>.show()")
-	fmt.Println("\t<var>.show(offset)")
-	fmt.Println("\t<var>.show(offset, limit)")
 	fmt.Println()
 }

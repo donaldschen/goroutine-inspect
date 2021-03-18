@@ -87,29 +87,7 @@ func expr(e string) error {
 					v.Search(ex.Args[0].(*ast.BasicLit).Value, offset, limit)
 					return nil
 				case "show":
-					var err error
-					offset := 0
-					limit := 5000
-					switch len(ex.Args) {
-					case 0:
-					case 1:
-						offset, err = strconv.Atoi(ex.Args[0].(*ast.BasicLit).Value)
-						if err != nil {
-							return fmt.Errorf("invalid argument %s", ex.Args[0])
-						}
-					case 2:
-						offset, err = strconv.Atoi(ex.Args[0].(*ast.BasicLit).Value)
-						if err != nil {
-							return fmt.Errorf("invalid argument 'offset' %s", ex.Args[0])
-						}
-						limit, err = strconv.Atoi(ex.Args[1].(*ast.BasicLit).Value)
-						if err != nil {
-							return fmt.Errorf("invalid argument 'limit' %s", ex.Args[1])
-						}
-					default:
-						return errors.New("show() expects at least one and at most two arguments")
-					}
-					v.Show(offset, limit)
+					v.Show()
 					return nil
 				default:
 					return fmt.Errorf("unknown instruction")

@@ -104,39 +104,24 @@ func (g *Goroutine) Freeze() {
 
 // Print outputs the goroutine details to w.
 func (g Goroutine) Print(w io.Writer) error {
-	if _, err := fmt.Fprint(w, g.header); err != nil {
-		return err
-	}
-
 	if len(g.duplicates) > 1 {
-		if _, err := fmt.Fprintf(w, " %d times: %v\n", len(g.duplicates), g.duplicates); err != nil {
-			return err
-		}
-
-		if _, err := fmt.Fprintln(w, g.bufScrubbed.String()); err != nil {
-			return err
-		}
+		fmt.Fprintf(w, "%s %d times: %v\n", scrubHeader(g.header), len(g.duplicates), g.duplicates)
+		fmt.Fprintln(w, g.bufScrubbed.String())
 	} else {
-		fmt.Fprintln(w)
-		if _, err := fmt.Fprintln(w, g.buf.String()); err != nil {
-			return err
-		}
+		fmt.Fprintf(w, "%s\n", g.header)
+		fmt.Fprintln(w, g.buf.String())
 	}
-
 	return nil
 }
 
 // PrintWithColor outputs the goroutine details to stdout with color.
 func (g Goroutine) PrintWithColor() {
-	sgr.Printf("[fg-blue]%s[reset]", g.header)
 	if len(g.duplicates) > 1 {
-		sgr.Printf(" [fg-red]%d[reset] times: [fg-green]%v[reset]", len(g.duplicates), g.duplicates)
-	}
-	sgr.Println()
-	if len(g.duplicates) == 1 {
-		fmt.Println(g.buf.String())
-	} else {
+		sgr.Printf("[fg-blue]%s[reset] [fg-red]%d[reset] times: [fg-green]%v[reset]\n", scrubHeader(g.header), len(g.duplicates), g.duplicates)
 		fmt.Println(g.bufScrubbed.String())
+	} else {
+		sgr.Printf("[fg-blue]%s[reset]\n", g.header)
+		fmt.Println(g.buf.String())
 	}
 }
 
@@ -326,9 +311,9 @@ func (gd GoroutineDump) Search(cond string, offset, limit int) {
 }
 
 // Show displays the goroutines with the offset and limit.
-func (gd GoroutineDump) Show(offset, limit int) {
-	for i := offset; i < offset+limit && i < len(gd.goroutines); i++ {
-		gd.goroutines[offset+i].PrintWithColor()
+func (gd GoroutineDump) Show() {
+	for _, v := range gd.goroutines {
+		v.PrintWithColor()
 	}
 }
 
@@ -410,4 +395,10 @@ func (gd *GoroutineDump) withCondition(cond string, callback func(int, *Goroutin
 	}
 	fmt.Printf("Deleted %d goroutines, kept %d.\n", len(gd.goroutines)-len(goroutines), len(goroutines))
 	return goroutines, nil
+}
+
+func scrubHeader(s string) string {
+	// replace all numbers
+	rn := regexp.MustCompile(`[0-9]+`)
+	return rn.ReplaceAllString(s, "~")
 }
