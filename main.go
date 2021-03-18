@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -13,6 +14,7 @@ import (
 
 	sgr "github.com/foize/go.sgr"
 	"github.com/peterh/liner"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -20,20 +22,22 @@ var (
 	cdPattern     = regexp.MustCompile(`^\s*cd\s*.*$`)
 
 	commands = map[string]string{
-		"?":     "Show this help",
-		"cd":    "Change current working directory",
-		"clear": "Clear the workspace",
-		"exit":  "Exit the interactive shell",
-		"help":  "Show this help",
-		"ls":    "Show files in current directory",
-		"pwd":   "Show current working directory",
-		"quit":  "Quit the interactive shell",
-		"whos":  "Show all varaibles in workspace",
+		"?":      "Show this help",
+		"cd":     "Change current working directory",
+		"clear":  "Clear the workspace",
+		"exit":   "Exit the interactive shell",
+		"help":   "Show this help",
+		"ls":     "Show files in current directory",
+		"pwd":    "Show current working directory",
+		"quit":   "Quit the interactive shell",
+		"whos":   "Show all varaibles in workspace",
+		"dedupe": "Dedupe the stack",
 	}
 	cmds []string
 	line *liner.State
 
-	workspace = map[string]*GoroutineDump{}
+	workspace  = map[string]*GoroutineDump{}
+	dedupeFile = flag.String("df", "", "dedupe file")
 )
 
 func init() {
@@ -45,6 +49,33 @@ func init() {
 }
 
 func main() {
+	flag.Parse()
+	logrus.SetLevel(logrus.DebugLevel)
+
+	if *dedupeFile != "" {
+		processFile(*dedupeFile)
+	} else {
+		runShell()
+	}
+}
+
+func processFile(f string) {
+	d, err := load(f)
+	if err != nil {
+		logrus.Error(err)
+		os.Exit(1)
+	}
+
+	d.Dedupe()
+	df := *dedupeFile + ".dedupe"
+	if err := d.Save(df); err != nil {
+		logrus.Error(err)
+		os.Exit(1)
+	}
+	logrus.Infof("wrote %v", df)
+}
+
+func runShell() {
 	line = createLiner()
 	defer line.Close()
 	defer saveLiner(line)

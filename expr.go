@@ -28,11 +28,11 @@ func expr(e string) error {
 						return errors.New("keep() expects exactly one argument")
 					}
 					return v.Delete(ex.Args[0].(*ast.BasicLit).Value)
-				case "dedup":
+				case "dedupe":
 					if len(ex.Args) != 0 {
 						return errors.New("dedup() expects no arguments")
 					}
-					v.Dedup()
+					v.Dedupe()
 					return nil
 				case "keep":
 					if len(ex.Args) != 1 {
@@ -89,7 +89,7 @@ func expr(e string) error {
 				case "show":
 					var err error
 					offset := 0
-					limit := 10
+					limit := 5000
 					switch len(ex.Args) {
 					case 0:
 					case 1:
@@ -112,11 +112,11 @@ func expr(e string) error {
 					v.Show(offset, limit)
 					return nil
 				default:
-					return fmt.Errorf("unknown instrution")
+					return fmt.Errorf("unknown instruction")
 				}
 			}
 		default:
-			return fmt.Errorf("unknown instrution")
+			return fmt.Errorf("unknown instruction")
 		}
 	case *ast.Ident:
 		if v, ok := workspace[ex.String()]; ok {
@@ -125,7 +125,7 @@ func expr(e string) error {
 			return fmt.Errorf("variable %s not found in workspace", e)
 		}
 	default:
-		return fmt.Errorf("unknown instrution")
+		return fmt.Errorf("unknown instruction")
 	}
 
 	return nil

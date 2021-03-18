@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/md5"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash"
@@ -15,7 +16,7 @@ import (
 	"os"
 
 	"github.com/Knetic/govaluate"
-	"github.com/foize/go.sgr"
+	sgr "github.com/foize/go.sgr"
 )
 
 type MetaType int
@@ -55,26 +56,33 @@ var (
 type Goroutine struct {
 	id       int
 	header   string
-	trace    string
 	lines    int
 	duration int // In minutes.
 	metas    map[MetaType]string
 
-	lineMd5    []string
-	fullMd5    string
-	fullHasher hash.Hash
-	duplicates []int
+	scrubbedHash string
+	fullHasher   hash.Hash
+	bufScrubbed  *bytes.Buffer
+	duplicates   []int
 
 	frozen bool
 	buf    *bytes.Buffer
 }
 
+var lineWithArgs = regexp.MustCompile(`\((0x[0-9a-f ,]+)+\)$`)
+
 // AddLine appends a line to the goroutine info.
 func (g *Goroutine) AddLine(l string) {
 	if !g.frozen {
 		g.lines++
-		g.buf.WriteString(l)
-		g.buf.WriteString("\n")
+		g.buf.WriteString(l + "\n")
+
+		if lineWithArgs.MatchString(l) {
+			ss := lineWithArgs.Split(l, -1)
+			g.bufScrubbed.WriteString(ss[0] + "(...)\n")
+		} else {
+			g.bufScrubbed.WriteString(l + "\n")
+		}
 
 		if strings.HasPrefix(l, "\t") {
 			parts := strings.Split(l, " ")
@@ -82,14 +90,6 @@ func (g *Goroutine) AddLine(l string) {
 				fmt.Println("ignored one line for digest")
 				return
 			}
-
-			fl := strings.TrimSpace(parts[0])
-
-			h := md5.New()
-			io.WriteString(h, fl)
-			g.lineMd5 = append(g.lineMd5, string(h.Sum(nil)))
-
-			io.WriteString(g.fullHasher, fl)
 		}
 	}
 }
@@ -98,10 +98,7 @@ func (g *Goroutine) AddLine(l string) {
 func (g *Goroutine) Freeze() {
 	if !g.frozen {
 		g.frozen = true
-		g.trace = g.buf.String()
-		g.buf = nil
-
-		g.fullMd5 = string(g.fullHasher.Sum(nil))
+		g.scrubbedHash = hex.EncodeToString(g.fullHasher.Sum(g.bufScrubbed.Bytes()))
 	}
 }
 
@@ -110,48 +107,37 @@ func (g Goroutine) Print(w io.Writer) error {
 	if _, err := fmt.Fprint(w, g.header); err != nil {
 		return err
 	}
-	if len(g.duplicates) > 0 {
-		if _, err := fmt.Fprintf(w, " %d times: [[", len(g.duplicates)); err != nil {
+
+	if len(g.duplicates) > 1 {
+		if _, err := fmt.Fprintf(w, " %d times: %v\n", len(g.duplicates), g.duplicates); err != nil {
 			return err
 		}
-		for i, id := range g.duplicates {
-			if i > 0 {
-				if _, err := fmt.Fprint(w, ", "); err != nil {
-					return err
-				}
-			}
-			if _, err := fmt.Fprint(w, id); err != nil {
-				return err
-			}
+
+		if _, err := fmt.Fprintln(w, g.bufScrubbed.String()); err != nil {
+			return err
 		}
-		if _, err := fmt.Fprint(w, "]"); err != nil {
+	} else {
+		fmt.Fprintln(w)
+		if _, err := fmt.Fprintln(w, g.buf.String()); err != nil {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w, g.trace); err != nil {
-		return err
-	}
+
 	return nil
 }
 
 // PrintWithColor outputs the goroutine details to stdout with color.
 func (g Goroutine) PrintWithColor() {
 	sgr.Printf("[fg-blue]%s[reset]", g.header)
-	if len(g.duplicates) > 0 {
-		sgr.Printf(" [fg-red]%d[reset] times: [[", len(g.duplicates))
-		for i, id := range g.duplicates {
-			if i > 0 {
-				sgr.Printf(", ")
-			}
-			sgr.Printf("[fg-green]%d[reset]", id)
-		}
-		sgr.Print("]")
+	if len(g.duplicates) > 1 {
+		sgr.Printf(" [fg-red]%d[reset] times: [fg-green]%v[reset]", len(g.duplicates), g.duplicates)
 	}
 	sgr.Println()
-	fmt.Println(g.trace)
+	if len(g.duplicates) == 1 {
+		fmt.Println(g.buf.String())
+	} else {
+		fmt.Println(g.bufScrubbed.String())
+	}
 }
 
 // NewGoroutine creates and returns a new Goroutine.
@@ -180,14 +166,15 @@ func NewGoroutine(metaline string) (*Goroutine, error) {
 	}
 
 	return &Goroutine{
-		id:         id,
-		lines:      1,
-		header:     metaline,
-		buf:        &bytes.Buffer{},
-		duration:   duration,
-		metas:      metas,
-		fullHasher: md5.New(),
-		duplicates: []int{},
+		id:          id,
+		lines:       1,
+		header:      metaline,
+		buf:         &bytes.Buffer{},
+		bufScrubbed: &bytes.Buffer{},
+		duration:    duration,
+		metas:       metas,
+		fullHasher:  md5.New(),
+		duplicates:  []int{},
 	}, nil
 }
 
@@ -229,31 +216,26 @@ func (gd GoroutineDump) Copy(cond string) *GoroutineDump {
 
 // Dedup finds goroutines with duplicated stack traces and keeps only one copy
 // of them.
-func (gd *GoroutineDump) Dedup() {
+func (gd *GoroutineDump) Dedupe() {
 	m := map[string][]int{}
 	for _, g := range gd.goroutines {
-		if _, ok := m[g.fullMd5]; ok {
-			m[g.fullMd5] = append(m[g.fullMd5], g.id)
-		} else {
-			m[g.fullMd5] = []int{g.id}
-		}
+		m[g.scrubbedHash] = append(m[g.scrubbedHash], g.id)
 	}
 
 	kept := make([]*Goroutine, 0, len(gd.goroutines))
 
-outter:
 	for digest, ids := range m {
 		for _, g := range gd.goroutines {
-			if g.fullMd5 == digest {
+			if g.scrubbedHash == digest {
 				g.duplicates = ids
 				kept = append(kept, g)
-				continue outter
+				break
 			}
 		}
 	}
 
 	if len(gd.goroutines) != len(kept) {
-		fmt.Printf("Dedupped %d, kept %d\n", len(gd.goroutines), len(kept))
+		fmt.Printf("dedupped %d, kept %d\n", len(gd.goroutines), len(kept))
 		gd.goroutines = kept
 	}
 }
@@ -412,7 +394,7 @@ func (gd *GoroutineDump) withCondition(cond string, callback func(int, *Goroutin
 			"duration": g.duration,
 			"lines":    g.lines,
 			"state":    g.metas[MetaState],
-			"trace":    g.trace,
+			"trace":    g.buf.String(),
 		}
 		res, err := expression.Evaluate(params)
 		if err != nil {

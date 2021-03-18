@@ -26,17 +26,16 @@ func load(fn string) (*GoroutineDump, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if startLinePattern.MatchString(line) {
+			//cleanup
+			if goroutine != nil {
+				goroutine.Freeze()
+			}
+
 			goroutine, err = NewGoroutine(line)
 			if err != nil {
 				return nil, err
 			}
 			dump.Add(goroutine)
-		} else if line == "" {
-			// End of a goroutine section.
-			if goroutine != nil {
-				goroutine.Freeze()
-			}
-			goroutine = nil
 		} else if goroutine != nil {
 			goroutine.AddLine(line)
 		}
